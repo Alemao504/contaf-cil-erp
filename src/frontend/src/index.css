@@ -1,0 +1,83 @@
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap");
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* Main background: #EEF2F5 */
+    --background: 0.95 0.012 240;
+    /* Card white */
+    --card: 1 0 0;
+    --card-foreground: 0.18 0.015 250;
+    /* Popover */
+    --popover: 1 0 0;
+    --popover-foreground: 0.18 0.015 250;
+    /* Primary: dark blue #163A5A */
+    --primary: 0.27 0.072 240;
+    --primary-foreground: 1 0 0;
+    /* Secondary: muted */
+    --secondary: 0.93 0.01 240;
+    --secondary-foreground: 0.27 0.072 240;
+    /* Muted */
+    --muted: 0.93 0.01 240;
+    --muted-foreground: 0.52 0.022 240;
+    /* Accent: orange #E07A2F */
+    --accent: 0.68 0.155 50;
+    --accent-foreground: 1 0 0;
+    /* Destructive: red #C94B4B */
+    --destructive: 0.52 0.155 20;
+    --destructive-foreground: 1 0 0;
+    /* Border: #E6E9EE */
+    --border: 0.92 0.012 240;
+    --input: 0.92 0.012 240;
+    --ring: 0.27 0.072 240;
+    --radius: 0.625rem;
+    /* Foreground: #1A1F24 */
+    --foreground: 0.18 0.015 250;
+    /* Success: #22A35A */
+    --success: 0.6 0.15 150;
+    /* Charts */
+    --chart-1: 0.27 0.072 240;
+    --chart-2: 0.68 0.155 50;
+    --chart-3: 0.6 0.15 150;
+    --chart-4: 0.52 0.155 20;
+    --chart-5: 0.52 0.022 240;
+    /* Sidebar: deep navy #0B2A45 → #123B63 */
+    --sidebar: 0.22 0.055 240;
+    --sidebar-foreground: 0.97 0.005 240;
+    --sidebar-primary: 0.68 0.155 50;
+    --sidebar-primary-foreground: 1 0 0;
+    --sidebar-accent: 0.28 0.065 240;
+    --sidebar-accent-foreground: 1 0 0;
+    --sidebar-border: 0.26 0.05 240;
+    --sidebar-ring: 0.68 0.155 50;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+    font-family: "Inter", sans-serif;
+    font-size: 13px;
+  }
+}
+
+@media print {
+  .no-print {
+    display: none !important;
+  }
+  .print-only {
+    display: block !important;
+  }
+  body {
+    background: white;
+  }
+}
+.print-only {
+  display: none;
+}
