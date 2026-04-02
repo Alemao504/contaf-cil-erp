@@ -55,6 +55,40 @@ export interface ARIASettings {
   autoComplete: boolean;
 }
 
+export interface ScanTask {
+  id: string;
+  clienteName: string;
+  tipo: string;
+  status: "pendente" | "processando" | "concluido" | "erro";
+  erroDetalhe?: string;
+}
+
+const TASK_TYPES = [
+  "Imposto de Renda PF",
+  "Simples Nacional",
+  "Notas Fiscais NF-e",
+  "Folha de Pagamento",
+  "DCTF",
+  "ECF/ECD",
+];
+
+const DEMO_ERRORS = [
+  "Documento PDF corrompido ou ilegível pelo OCR. Reenvie o arquivo.",
+  "CPF/CNPJ inválido nos dados recebidos. Verifique os dados do cliente.",
+  "Arquivo XML malformado — tag de fechamento ausente. Exporte novamente.",
+  "Data de competência fora do período fiscal vigente.",
+  "Valor divergente entre NF-e e extrato bancário. Revisão necessária.",
+];
+
+function generateTasksForClients(clients: string[]): ScanTask[] {
+  return clients.sort().map((name) => ({
+    id: `task_${name.replace(/\s+/g, "_").toLowerCase()}_${Date.now()}`,
+    clienteName: name,
+    tipo: TASK_TYPES[Math.floor(Math.random() * TASK_TYPES.length)],
+    status: "pendente" as const,
+  }));
+}
+
 interface ARIAContextType {
   isActive: boolean;
   setIsActive: (v: boolean) => void;
@@ -73,6 +107,11 @@ interface ARIAContextType {
   isProcessing: boolean;
   refreshPendingOcr: () => void;
   pendingOcrCount: number;
+  // Sequential processing
+  scanTasks: ScanTask[];
+  currentTaskIndex: number;
+  startSequentialProcessing: (clients: string[]) => void;
+  reScan: (clients: string[]) => void;
 }
 
 const ARIAContext = createContext<ARIAContextType | null>(null);
@@ -128,6 +167,17 @@ const DEMO_FILES = [
   },
 ];
 
+const DEFAULT_CLIENTS = [
+  "Ana Lima",
+  "Bruno Ferreira",
+  "Carlos Mendes",
+  "Diana Costa",
+  "Eduardo Santos",
+  "Fernanda Oliveira",
+  "Gustavo Rocha",
+  "Helena Martins",
+];
+
 export function ARIAProvider({ children }: { children: ReactNode }) {
   const [isActive, setIsActiveState] = useState(() => {
     return localStorage.getItem("ariaActive") === "true";
@@ -138,7 +188,11 @@ export function ARIAProvider({ children }: { children: ReactNode }) {
   const [settings, setSettings] = useState<ARIASettings>(loadSettings);
   const [isProcessing, setIsProcessing] = useState(false);
   const [pendingOcrCount, setPendingOcrCount] = useState(0);
+  const [scanTasks, setScanTasks] = useState<ScanTask[]>([]);
+  const [currentTaskIndex, setCurrentTaskIndex] = useState(0);
   const demoRunning = useRef(false);
+  const seqRunning = useRef(false);
+  const autoScanned = useRef(false);
 
   useEffect(() => {
     try {
@@ -146,7 +200,6 @@ export function ARIAProvider({ children }: { children: ReactNode }) {
     } catch {}
   }, [messages]);
 
-  // Load pending OCR count on mount
   const refreshPendingOcr = useCallback(() => {
     getAllRecords<OcrResult>("ocr_results")
       .then((all) => {
@@ -203,6 +256,130 @@ export function ARIAProvider({ children }: { children: ReactNode }) {
     localStorage.setItem("ariaActive", String(v));
   }, []);
 
+  // ── Sequential processing ──────────────────────────────────────────────
+  const reScan = useCallback(
+    (clients: string[]) => {
+      const list = clients.length > 0 ? clients : DEFAULT_CLIENTS;
+      const tasks = generateTasksForClients(list);
+      setScanTasks(tasks);
+      setCurrentTaskIndex(0);
+      addMessage({
+        type: "info",
+        text: "🔍 Escaneando pastas monitoradas...",
+      });
+      setTimeout(() => {
+        addMessage({
+          type: "success",
+          text: `✅ Scan concluído — ${tasks.length} tarefa(s) pendente(s) encontrada(s) para ${list.length} cliente(s).`,
+        });
+      }, 1500);
+    },
+    [addMessage],
+  );
+
+  const startSequentialProcessing = useCallback(
+    (clients: string[]) => {
+      if (seqRunning.current) return;
+
+      const list = clients.length > 0 ? clients : DEFAULT_CLIENTS;
+      const tasks = generateTasksForClients(list);
+      setScanTasks(tasks);
+      setCurrentTaskIndex(0);
+      seqRunning.current = true;
+      setIsProcessing(true);
+
+      addMessage({
+        type: "system",
+        text: `🤖 ARIA iniciando processamento sequencial — ${tasks.length} tarefa(s), ordem alfabética...`,
+      });
+
+      const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+      (async () => {
+        for (let i = 0; i < tasks.length; i++) {
+          const task = tasks[i];
+          setCurrentTaskIndex(i);
+
+          setScanTasks((prev) =>
+            prev.map((t) =>
+              t.id === task.id ? { ...t, status: "processando" } : t,
+            ),
+          );
+
+          addMessage({
+            type: "processing",
+            text: `🔄 [${i + 1}/${tasks.length}] Processando: ${task.clienteName} — ${task.tipo}`,
+            clientName: task.clienteName,
+            progress: 0,
+          });
+
+          await delay(1800 + Math.random() * 600);
+
+          const hasError = Math.random() < 0.1;
+          if (hasError) {
+            const errMsg =
+              DEMO_ERRORS[Math.floor(Math.random() * DEMO_ERRORS.length)];
+            setScanTasks((prev) =>
+              prev.map((t) =>
+                t.id === task.id
+                  ? { ...t, status: "erro", erroDetalhe: errMsg }
+                  : t,
+              ),
+            );
+            addMessage({
+              type: "error",
+              text: `❌ Erro em ${task.clienteName} (${task.tipo}): ${errMsg}`,
+              clientName: task.clienteName,
+              errorDetails: [{ file: task.tipo, message: errMsg }],
+            });
+          } else {
+            setScanTasks((prev) =>
+              prev.map((t) =>
+                t.id === task.id ? { ...t, status: "concluido" } : t,
+              ),
+            );
+            addMessage({
+              type: "success",
+              text: `✅ Concluído: ${task.clienteName} — ${task.tipo}`,
+              clientName: task.clienteName,
+            });
+          }
+        }
+
+        addMessage({
+          type: "completion",
+          text: `Processamento sequencial finalizado — ${tasks.length} tarefa(s) processada(s).`,
+          completionData: {
+            processed: tasks.length,
+            errors: 0,
+            resolved: 0,
+            files: tasks.map((t) => t.clienteName),
+          },
+        });
+
+        seqRunning.current = false;
+        setIsProcessing(false);
+      })();
+    },
+    [addMessage],
+  );
+
+  // Auto-scan on mount if ARIA is active
+  useEffect(() => {
+    if (isActive && !autoScanned.current) {
+      autoScanned.current = true;
+      const tasks = generateTasksForClients(DEFAULT_CLIENTS);
+      setScanTasks(tasks);
+      setTimeout(() => {
+        addMessage({
+          type: "info",
+          text: `🔍 Escaneamento automático: ${tasks.length} tarefa(s) detectada(s).`,
+        });
+      }, 2000);
+    }
+  }, [isActive, addMessage]);
+
+  // ── Real document processing ───────────────────────────────────────────
   const processRealDocument = useCallback(
     async (file: File, clientId: string) => {
       const apiKey = localStorage.getItem("claudeApiKey");
@@ -289,7 +466,6 @@ export function ARIAProvider({ children }: { children: ReactNode }) {
           text: `✅ Análise concluída: ${file.name}`,
         });
 
-        // Save to ocr_results IndexedDB
         const ocrResult: OcrResult = {
           id: docId,
           clientId,
@@ -312,7 +488,6 @@ export function ARIAProvider({ children }: { children: ReactNode }) {
         });
 
         if (settings.autoApproveEntries) {
-          // Auto-approve: save lancamentos directly
           for (const l of analysis.lancamentos) {
             await putRecord("journal_entries", {
               id: `je_${docId}_${l.id}`,
@@ -326,7 +501,6 @@ export function ARIAProvider({ children }: { children: ReactNode }) {
               createdAt: new Date().toISOString(),
             });
           }
-          // Update status to approved
           await putRecord("ocr_results", { ...ocrResult, status: "approved" });
           addMessage({
             type: "success",
@@ -572,6 +746,10 @@ export function ARIAProvider({ children }: { children: ReactNode }) {
         isProcessing,
         refreshPendingOcr,
         pendingOcrCount,
+        scanTasks,
+        currentTaskIndex,
+        startSequentialProcessing,
+        reScan,
       }}
     >
       {children}

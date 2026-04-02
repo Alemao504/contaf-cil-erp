@@ -17,6 +17,7 @@ import AriaAprovacao from "./pages/AriaAprovacao";
 import AriaLote from "./pages/AriaLote";
 import AriaMemoria from "./pages/AriaMemoria";
 import AriaPasstas from "./pages/AriaPasstas";
+import AriaProcessamento from "./pages/AriaProcessamento";
 import AriaVoz from "./pages/AriaVoz";
 import AssinaturaDigital from "./pages/AssinaturaDigital";
 import BIStudio from "./pages/BIStudio";
@@ -139,6 +140,8 @@ function AppContent() {
         return <AriaLote />;
       case "aria-pastas":
         return <AriaPasstas />;
+      case "aria-processamento":
+        return <AriaProcessamento />;
       default:
         return <Dashboard />;
     }

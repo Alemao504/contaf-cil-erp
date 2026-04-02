@@ -26,6 +26,7 @@ import {
   Layers,
   LayoutDashboard,
   LineChart,
+  ListChecks,
   LogOut,
   Mic,
   Network,
@@ -332,6 +333,11 @@ export default function Sidebar() {
     },
     { id: "aria-lote", label: "Processamento em Lote", icon: Layers },
     { id: "aria-pastas", label: "Pastas ARIA", icon: FolderTree },
+    {
+      id: "aria-processamento",
+      label: "Processamento Seq.",
+      icon: ListChecks,
+    },
 
     // ── GROUP 6: SISTEMA ──────────────────────────────────────────────────
     { id: "__sep_sys__", label: "SISTEMA", isSeparator: true },
