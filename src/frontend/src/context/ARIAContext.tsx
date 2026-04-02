@@ -112,6 +112,9 @@ interface ARIAContextType {
   currentTaskIndex: number;
   startSequentialProcessing: (clients: string[]) => void;
   reScan: (clients: string[]) => void;
+  // Voice
+  voiceEnabled: boolean;
+  setVoiceEnabled: (v: boolean) => void;
 }
 
 const ARIAContext = createContext<ARIAContextType | null>(null);
@@ -178,6 +181,38 @@ const DEFAULT_CLIENTS = [
   "Helena Martins",
 ];
 
+// Speak text with high-pitched anime-style voice
+function speakText(text: string) {
+  if (!window.speechSynthesis) return;
+  // Cancel any current speech
+  window.speechSynthesis.cancel();
+  // Clean up text: remove emojis and shorten
+  const clean = text
+    .replace(/[\u{1F300}-\u{1FAFF}]/gu, "")
+    .replace(/[\u2600-\u26FF]/g, "")
+    .replace(/[\u2700-\u27BF]/g, "")
+    .trim()
+    .slice(0, 150);
+  if (!clean) return;
+  const utter = new SpeechSynthesisUtterance(clean);
+  utter.lang = "pt-BR";
+  utter.pitch = 1.8;
+  utter.rate = 1.3;
+  utter.volume = 0.9;
+  // Try to find a female voice
+  const voices = window.speechSynthesis.getVoices();
+  const femaleVoice = voices.find(
+    (v) =>
+      v.lang.startsWith("pt") &&
+      (v.name.toLowerCase().includes("female") ||
+        v.name.toLowerCase().includes("feminino") ||
+        v.name.toLowerCase().includes("maria") ||
+        v.name.toLowerCase().includes("luciana")),
+  );
+  if (femaleVoice) utter.voice = femaleVoice;
+  window.speechSynthesis.speak(utter);
+}
+
 export function ARIAProvider({ children }: { children: ReactNode }) {
   const [isActive, setIsActiveState] = useState(() => {
     return localStorage.getItem("ariaActive") === "true";
@@ -190,15 +225,37 @@ export function ARIAProvider({ children }: { children: ReactNode }) {
   const [pendingOcrCount, setPendingOcrCount] = useState(0);
   const [scanTasks, setScanTasks] = useState<ScanTask[]>([]);
   const [currentTaskIndex, setCurrentTaskIndex] = useState(0);
+  const [voiceEnabled, setVoiceEnabledState] = useState(() => {
+    return localStorage.getItem("ariaVoiceEnabled") !== "false";
+  });
   const demoRunning = useRef(false);
   const seqRunning = useRef(false);
   const autoScanned = useRef(false);
+  const lastSpokenId = useRef<string | null>(null);
+
+  const setVoiceEnabled = useCallback((v: boolean) => {
+    setVoiceEnabledState(v);
+    localStorage.setItem("ariaVoiceEnabled", String(v));
+  }, []);
 
   useEffect(() => {
     try {
       sessionStorage.setItem("ariaMessages", JSON.stringify(messages));
     } catch {}
   }, [messages]);
+
+  // Speak new messages when they arrive
+  useEffect(() => {
+    if (!voiceEnabled || !isActive) return;
+    if (messages.length === 0) return;
+    const lastMsg = messages[messages.length - 1];
+    if (!lastMsg || lastMsg.id === lastSpokenId.current) return;
+    if (lastMsg.type === "processing" || lastMsg.type === "completion") return;
+    lastSpokenId.current = lastMsg.id;
+    // Small delay to ensure voices are loaded
+    const timeout = setTimeout(() => speakText(lastMsg.text), 100);
+    return () => clearTimeout(timeout);
+  }, [messages, voiceEnabled, isActive]);
 
   const refreshPendingOcr = useCallback(() => {
     getAllRecords<OcrResult>("ocr_results")
@@ -750,6 +807,8 @@ export function ARIAProvider({ children }: { children: ReactNode }) {
         currentTaskIndex,
         startSequentialProcessing,
         reScan,
+        voiceEnabled,
+        setVoiceEnabled,
       }}
     >
       {children}

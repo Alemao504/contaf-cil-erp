@@ -11,16 +11,27 @@ import {
   FolderOpen,
   Info,
   Loader2,
+  Mic,
+  MicOff,
   PencilLine,
+  Send,
   Trash2,
   X,
   XCircle,
   Zap,
 } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { type ARIAMessage, useARIA } from "../context/ARIAContext";
+import { useAppContext } from "../context/AppContext";
+
+// Check for SpeechRecognition support
+const SpeechRecognitionAPI =
+  typeof window !== "undefined"
+    ? (window as any).SpeechRecognition ||
+      (window as any).webkitSpeechRecognition
+    : null;
 
 function MessageIcon({ type }: { type: ARIAMessage["type"] }) {
   if (type === "success")
@@ -321,6 +332,88 @@ function ErrorsPanel({ messages }: { messages: ARIAMessage[] }) {
   );
 }
 
+// Voice command processor
+function processVoiceCommand(
+  transcript: string,
+  setCurrentPage: (page: string) => void,
+  setIsChatOpen: (open: boolean) => void,
+  addMessage: (msg: any) => void,
+  setIsActive: (v: boolean) => void,
+  messages: ARIAMessage[],
+): boolean {
+  const t = transcript.toLowerCase().trim();
+
+  const nav = (page: string, label: string) => {
+    setCurrentPage(page);
+    setIsChatOpen(false);
+    addMessage({
+      type: "success",
+      text: `Navegando para ${label}! ✨`,
+    });
+    return true;
+  };
+
+  if (t.includes("notas") || t.includes("nota fiscal"))
+    return nav("notas-fiscais", "Notas Fiscais");
+  if (t.includes("clientes") || t.includes("cliente"))
+    return nav("clientes", "Clientes");
+  if (
+    t.includes("dashboard") ||
+    t.includes("início") ||
+    t.includes("inicio") ||
+    t.includes("home")
+  )
+    return nav("dashboard", "Dashboard");
+  if (t.includes("fiscal") || t.includes("módulo fiscal"))
+    return nav("modulo-fiscal", "Módulo Fiscal");
+  if (t.includes("irpf") || t.includes("imposto de renda"))
+    return nav("irpf", "IRPF");
+  if (t.includes("lançamentos") || t.includes("lancamentos"))
+    return nav("lancamentos", "Lançamentos");
+  if (
+    t.includes("relatório") ||
+    t.includes("relatorio") ||
+    t.includes("relatórios")
+  )
+    return nav("relatorios", "Relatórios");
+  if (
+    t.includes("configurações") ||
+    t.includes("configuracoes") ||
+    t.includes("configuracao")
+  )
+    return nav("configuracoes", "Configurações");
+
+  if (
+    t.includes("falta") ||
+    t.includes("pendente") ||
+    t.includes("pendentes")
+  ) {
+    const pending = messages.filter(
+      (m) => m.type !== "success" && m.type !== "completion",
+    ).length;
+    addMessage({
+      type: "info",
+      text: `📋 Tarefas pendentes: ${pending} item(s) aguardando processamento. Use o módulo de Processamento Sequencial para ver a lista completa.`,
+    });
+    return true;
+  }
+
+  if (
+    t.includes("processar") ||
+    t.includes("ativar aria") ||
+    t.includes("ativar")
+  ) {
+    setIsActive(true);
+    addMessage({
+      type: "system",
+      text: "🤖 ARIA ativada por comando de voz! Iniciando processamento...",
+    });
+    return true;
+  }
+
+  return false;
+}
+
 export default function ARIAChat() {
   const {
     messages,
@@ -329,18 +422,110 @@ export default function ARIAChat() {
     clearUnread,
     isActive,
     isProcessing,
+    addMessage,
+    setIsActive,
   } = useARIA();
+  const { setCurrentPage } = useAppContext();
   const scrollRef = useRef<HTMLDivElement>(null);
+  const [inputText, setInputText] = useState("");
+  const [isListening, setIsListening] = useState(false);
+  const recognitionRef = useRef<any>(null);
 
   useEffect(() => {
     clearUnread();
   }, [clearUnread]);
 
   useEffect(() => {
-    // Auto-scroll to bottom on new messages
     const el = scrollRef.current;
     if (el) el.scrollTop = el.scrollHeight;
   });
+
+  const handleSendText = useCallback(() => {
+    const text = inputText.trim();
+    if (!text) return;
+    setInputText("");
+
+    // Check if it's a command
+    const isCommand = processVoiceCommand(
+      text,
+      setCurrentPage,
+      setIsChatOpen,
+      addMessage,
+      setIsActive,
+      messages,
+    );
+
+    if (!isCommand) {
+      // Echo user message then respond
+      addMessage({ type: "info", text: `Você: ${text}` });
+      setTimeout(() => {
+        addMessage({
+          type: "system",
+          text: `Entendido! Para navegar, diga: "abrir clientes", "abrir notas", "abrir dashboard" etc. Para processar clientes, diga "processar tudo".`,
+        });
+      }, 600);
+    }
+  }, [
+    inputText,
+    setCurrentPage,
+    setIsChatOpen,
+    addMessage,
+    setIsActive,
+    messages,
+  ]);
+
+  const startListening = useCallback(() => {
+    if (!SpeechRecognitionAPI) return;
+    if (isListening) {
+      recognitionRef.current?.stop();
+      setIsListening(false);
+      return;
+    }
+
+    const recognition = new SpeechRecognitionAPI();
+    recognitionRef.current = recognition;
+    recognition.lang = "pt-BR";
+    recognition.continuous = false;
+    recognition.interimResults = false;
+    recognition.maxAlternatives = 1;
+
+    recognition.onstart = () => setIsListening(true);
+    recognition.onend = () => setIsListening(false);
+    recognition.onerror = () => setIsListening(false);
+
+    recognition.onresult = (event: any) => {
+      const transcript = event.results[0][0].transcript;
+      setInputText(transcript);
+
+      const isCommand = processVoiceCommand(
+        transcript,
+        setCurrentPage,
+        setIsChatOpen,
+        addMessage,
+        setIsActive,
+        messages,
+      );
+
+      if (!isCommand) {
+        addMessage({ type: "info", text: `🎤 Você disse: "${transcript}"` });
+        setTimeout(() => {
+          addMessage({
+            type: "system",
+            text: 'Comando não reconhecido. Tente: "abrir clientes", "abrir notas", "quem falta declaração" ou "processar tudo".',
+          });
+        }, 500);
+      }
+    };
+
+    recognition.start();
+  }, [
+    isListening,
+    setCurrentPage,
+    setIsChatOpen,
+    addMessage,
+    setIsActive,
+    messages,
+  ]);
 
   const chatMessages = messages.filter((m) => m.type !== "completion");
   const completionMsg = messages.find((m) => m.type === "completion");
@@ -356,7 +541,7 @@ export default function ARIAChat() {
         position: "fixed",
         bottom: 100,
         right: 24,
-        width: 360,
+        width: 380,
         maxWidth: "calc(100vw - 32px)",
         maxHeight: "calc(100vh - 140px)",
         zIndex: 9998,
@@ -427,6 +612,18 @@ export default function ARIAChat() {
         </div>
       </div>
 
+      {/* Voice command hint */}
+      {SpeechRecognitionAPI && (
+        <div
+          className="px-4 py-1.5 text-[10px] text-white/30 flex items-center gap-1.5"
+          style={{ borderBottom: "1px solid oklch(0.25 0.04 240 / 0.4)" }}
+        >
+          <Mic size={9} />
+          Diga: &quot;abrir clientes&quot;, &quot;abrir notas&quot;,
+          &quot;processar tudo&quot;
+        </div>
+      )}
+
       {/* Messages */}
       <div
         ref={scrollRef}
@@ -451,6 +648,11 @@ export default function ARIAChat() {
                 ? "ARIA está pronta. Aguardando arquivos..."
                 : "Ative a ARIA para iniciar o processamento automático."}
             </p>
+            {SpeechRecognitionAPI && (
+              <p className="text-[10px] text-white/20 text-center">
+                💡 Use o microfone para comandos de voz
+              </p>
+            )}
           </div>
         )}
 
@@ -463,7 +665,6 @@ export default function ARIAChat() {
               transition={{ duration: 0.18 }}
               className="flex gap-2"
             >
-              {/* ARIA avatar for ARIA messages */}
               <div className="shrink-0 w-5 h-5 mt-0.5">
                 <img
                   src="/assets/generated/aria-avatar-transparent.dim_400x500.png"
@@ -483,7 +684,6 @@ export default function ARIAChat() {
                     <span className="flex-1">{msg.text}</span>
                   </div>
 
-                  {/* Progress bar for processing messages */}
                   {msg.type === "processing" && msg.progress !== undefined && (
                     <div className="mt-2">
                       <div className="flex justify-between text-[10px] text-white/40 mb-1">
@@ -493,14 +693,11 @@ export default function ARIAChat() {
                       <Progress
                         value={msg.progress}
                         className="h-1"
-                        style={{
-                          background: "oklch(0.3 0.04 240)",
-                        }}
+                        style={{ background: "oklch(0.3 0.04 240)" }}
                       />
                     </div>
                   )}
 
-                  {/* Folder link */}
                   {msg.filePath && (
                     <button
                       type="button"
@@ -512,7 +709,6 @@ export default function ARIAChat() {
                     </button>
                   )}
 
-                  {/* Editable error */}
                   {msg.isEditable && !msg.resolved && (
                     <EditableError msg={msg} />
                   )}
@@ -529,17 +725,77 @@ export default function ARIAChat() {
           ))}
         </AnimatePresence>
 
-        {/* Completion card */}
         {completionMsg && <CompletionCard msg={completionMsg} />}
-
-        {/* Errors panel (VS Code style) */}
         {messages.length > 0 && <ErrorsPanel messages={messages} />}
+      </div>
+
+      {/* Chat input */}
+      <div
+        className="shrink-0 px-3 py-2 flex items-center gap-2"
+        style={{ borderTop: "1px solid oklch(0.25 0.04 240 / 0.6)" }}
+      >
+        <Input
+          data-ocid="aria.chat.input"
+          placeholder={isListening ? "Ouvindo..." : "Pergunte à ARIA..."}
+          className="flex-1 h-8 text-xs bg-white/5 border-white/15 text-white placeholder-white/30 focus:border-cyan-500/50"
+          value={inputText}
+          onChange={(e) => setInputText(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && handleSendText()}
+        />
+
+        {/* Mic button */}
+        {SpeechRecognitionAPI && (
+          <motion.button
+            type="button"
+            data-ocid="aria.voice.mic_button"
+            onClick={startListening}
+            animate={isListening ? { scale: [1, 1.15, 1] } : { scale: 1 }}
+            transition={
+              isListening
+                ? { duration: 0.8, repeat: Number.POSITIVE_INFINITY }
+                : {}
+            }
+            className="w-8 h-8 rounded-full flex items-center justify-center transition-colors shrink-0"
+            style={{
+              background: isListening
+                ? "oklch(0.55 0.22 25)"
+                : "oklch(0.3 0.05 240)",
+              color: "white",
+              boxShadow: isListening
+                ? "0 0 12px oklch(0.55 0.22 25 / 0.6)"
+                : "none",
+            }}
+            aria-label={
+              isListening ? "Parar gravação" : "Iniciar gravação de voz"
+            }
+          >
+            {isListening ? <MicOff size={13} /> : <Mic size={13} />}
+          </motion.button>
+        )}
+
+        {/* Send button */}
+        <button
+          type="button"
+          data-ocid="aria.chat.submit_button"
+          onClick={handleSendText}
+          disabled={!inputText.trim()}
+          className="w-8 h-8 rounded-full flex items-center justify-center transition-colors shrink-0 disabled:opacity-30"
+          style={{
+            background: inputText.trim()
+              ? "oklch(0.55 0.18 195)"
+              : "oklch(0.3 0.04 240)",
+            color: "white",
+          }}
+          aria-label="Enviar mensagem"
+        >
+          <Send size={13} />
+        </button>
       </div>
 
       {/* Footer */}
       <div
-        className="shrink-0 px-3 py-2 flex items-center justify-between"
-        style={{ borderTop: "1px solid oklch(0.25 0.04 240 / 0.6)" }}
+        className="shrink-0 px-3 pb-2 flex items-center justify-between"
+        style={{ borderTop: "1px solid oklch(0.2 0.03 240 / 0.4)" }}
       >
         <p className="text-[10px] text-white/25">
           {messages.length} {messages.length === 1 ? "mensagem" : "mensagens"}
